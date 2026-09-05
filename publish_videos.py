@@ -21,12 +21,13 @@ logger = logging.getLogger(__name__)
 
 def update_privacy(video_id: str, new_privacy: str = "public"):
     client = YouTubeClient()
-    youtube = client.get_service()
 
     logger.info(f"Setting video {video_id} to '{new_privacy}'...")
     try:
-        # First retrieve the video category and title to satisfy YouTube update requirements
-        res = youtube.videos().list(part="snippet,status", id=video_id).execute()
+        # Retrieve video snippet and status with auto-refresh retry
+        res = client.execute_api_call(
+            lambda: client.get_service().videos().list(part="snippet,status", id=video_id).execute()
+        )
         items = res.get("items", [])
         if not items:
             logger.warning(f"Video {video_id} not found on YouTube.")
@@ -47,10 +48,12 @@ def update_privacy(video_id: str, new_privacy: str = "public"):
             }
         }
 
-        youtube.videos().update(
-            part="snippet,status",
-            body=update_body
-        ).execute()
+        client.execute_api_call(
+            lambda: client.get_service().videos().update(
+                part="snippet,status",
+                body=update_body
+            ).execute()
+        )
         logger.info(f"Successfully updated video {video_id} to '{new_privacy}'!")
         return True
     except HttpError as e:
