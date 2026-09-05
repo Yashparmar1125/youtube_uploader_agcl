@@ -1,0 +1,18 @@
+# Credentials and Tokens (NEVER commit to Git)
+client_secret.json
+token.json
+
+# Local database
+pravachan.db
+
+# Audio and media folders
+PRAVACHAN/
+temp_videos/
+
+# Runtime logs and cache
+*.log
+uploader.log
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
