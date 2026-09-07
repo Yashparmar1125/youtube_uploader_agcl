@@ -164,7 +164,7 @@ python publish_videos.py
 | `WATCH_DIR` | `BASE_DIR / "PRAVACHAN"` | Folder to monitor (can point to Google Drive) |
 | `TEMP_DIR` | `BASE_DIR / "temp_videos"` | Staging directory for rendered MP4s |
 | `DB_PATH` | `BASE_DIR / "pravachan.db"` | SQLite database file path |
-| `DEFAULT_PRIVACY` | `"public"` | Upload visibility (`public`, `unlisted`, or `private`) |
+| `DEFAULT_PRIVACY` | `"private"` | Upload visibility (Must remain `private` on unverified projects to prevent ToS bans) |
 | `DEFAULT_CATEGORY_ID` | `"22"` | YouTube Category ID (`22` = People & Blogs) |
 | `DEFAULT_TAGS` | `["Pravachan", "Katha", ...]` | Default YouTube tags |
 

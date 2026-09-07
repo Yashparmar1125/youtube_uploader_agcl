@@ -17,7 +17,8 @@ THUMBNAIL_FILENAMES = ["thumbnail.jpg", "thumbnail.jpeg", "thumbnail.png", "cove
 
 # YouTube Upload Settings
 # Allowed values: 'private', 'unlisted', 'public'
-DEFAULT_PRIVACY = os.getenv("YOUTUBE_PRIVACY", "public")
+# NOTE: Unverified YouTube API projects MUST use 'private' to prevent Google ToS bans.
+DEFAULT_PRIVACY = os.getenv("YOUTUBE_PRIVACY", "private")
 
 # Category 22 = People & Blogs; 27 = Education; 29 = Nonprofits & Activism
 DEFAULT_CATEGORY_ID = "22"
