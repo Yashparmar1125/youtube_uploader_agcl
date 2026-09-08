@@ -43,18 +43,41 @@ def clean_title(filename: str) -> str:
     cleaned = re.sub(r'\s+', ' ', stem).strip()
     return cleaned
 
-def find_thumbnail(folder_path: Path) -> Optional[Path]:
-    """Finds a thumbnail image in the folder."""
-    # First, look for standard names
+def resolve_thumbnail_for_audio(audio_path: Path, folder_path: Path) -> Optional[Path]:
+    """
+    Finds the appropriate thumbnail image for an audio file:
+    1. First priority: Exact match by file stem (e.g. '01.mp3' -> '01.jpg', '01.jpeg', '01.png')
+    2. Second priority: Match normalized title (e.g. 'Part   1.m4a' matches 'Part 1.jpg')
+    3. Fallback priority: Standard folder thumbnail (e.g. 'thumbnail.jpg', 'thumbnail.jpeg', 'cover.jpg')
+    4. Ultimate fallback: Any image in folder containing 'thumbnail' or 'cover' in its name
+    """
+    image_exts = [".jpg", ".jpeg", ".png", ".webp"]
+
+    # 1. Check same stem directly (e.g. song.mp3 -> song.jpg / song.jpeg / song.png)
+    for ext in image_exts:
+        candidate = audio_path.with_suffix(ext)
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    # 2. Check normalized title match against all images in the folder
+    audio_cleaned = clean_title(audio_path.name).lower()
+    for file in folder_path.iterdir():
+        if file.is_file() and file.suffix.lower() in image_exts:
+            if clean_title(file.name).lower() == audio_cleaned:
+                return file
+
+    # 3. Fallback to standard folder thumbnail names
     for name in config.THUMBNAIL_FILENAMES:
         candidate = folder_path / name
         if candidate.exists() and candidate.is_file():
             return candidate
 
-    # Fallback: find any jpg or png in the directory
+    # 4. Fallback to any file with 'thumbnail' or 'cover' in its name
     for file in folder_path.iterdir():
-        if file.is_file() and file.suffix.lower() in [".jpg", ".jpeg", ".png"]:
-            return file
+        if file.is_file() and file.suffix.lower() in image_exts:
+            stem_lower = file.stem.lower()
+            if "thumbnail" in stem_lower or "cover" in stem_lower:
+                return file
 
     return None
 
@@ -102,14 +125,15 @@ def process_single_audio(
         return False
 
     if dry_run:
-        logger.info(f"[DRY-RUN] Found new audio: '{title}' [{folder_name}]")
+        logger.info(f"[DRY-RUN] Found audio: '{title}' [{folder_name}] (Mapped Image: '{thumbnail_path.name}')")
         logger.info(f"[DRY-RUN] Would encode '{audio_path.name}' + '{thumbnail_path.name}' -> MP4")
         logger.info(f"[DRY-RUN] Would upload to YouTube with title: '{title}' ({privacy_status})")
+        logger.info(f"[DRY-RUN] Would set custom thumbnail: '{thumbnail_path.name}'")
         logger.info(f"[DRY-RUN] Would add to playlist: '{folder_name}'")
         return True
 
     db.register_file(audio_path, file_hash, file_size, folder_name, title)
-    logger.info(f"==> Found new audio to process: '{title}' [{folder_name}]")
+    logger.info(f"==> Found new audio to process: '{title}' [{folder_name}] (Using Image: '{thumbnail_path.name}')")
 
     # Temporary MP4 output path
     temp_mp4 = config.TEMP_DIR / f"{file_hash[:16]}.mp4"
@@ -186,22 +210,32 @@ def scan_and_upload(
 
     for folder in subdirs:
         folder_name = folder.name
-        thumbnail = find_thumbnail(folder)
         audio_files = find_audio_files(folder)
 
         if not audio_files:
             continue
 
-        if not thumbnail:
-            logger.warning(
-                f"Folder '{folder_name}' has {len(audio_files)} audio file(s) but NO thumbnail image found! "
-                f"Please add 'thumbnail.jpg' to '{folder_name}'."
-            )
-            continue
+        # Look for a folder fallback thumbnail (e.g. thumbnail.jpg)
+        fallback_thumb = None
+        for name in config.THUMBNAIL_FILENAMES:
+            candidate = folder / name
+            if candidate.exists() and candidate.is_file():
+                fallback_thumb = candidate
+                break
 
-        logger.info(f"Scanning '{folder_name}': Found {len(audio_files)} audio file(s) and thumbnail '{thumbnail.name}'.")
+        fallback_info = f"'{fallback_thumb.name}'" if fallback_thumb else "None"
+        logger.info(f"Scanning '{folder_name}': Found {len(audio_files)} audio file(s) (Folder fallback thumbnail: {fallback_info}).")
 
         for audio in audio_files:
+            # Map same-name image (e.g. song.mp3 -> song.jpg), else fallback to folder thumbnail.jpg
+            thumbnail = resolve_thumbnail_for_audio(audio, folder)
+            if not thumbnail:
+                logger.warning(
+                    f"Folder '{folder_name}': No image found for '{audio.name}' "
+                    f"(no '{audio.stem}.jpg' and no 'thumbnail.jpg' fallback). Skipping this track."
+                )
+                continue
+
             try:
                 processed = process_single_audio(
                     audio_path=audio,

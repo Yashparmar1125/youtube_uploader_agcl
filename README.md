@@ -55,18 +55,21 @@ Youtube_Uploader/
 │
 ├── PRAVACHAN/
 │   ├── Bhagwat Katha 2026/
-│   │   ├── thumbnail.jpg
-│   │   ├── 01 - Introduction.m4a
-│   │   ├── 02 - Krishna Janma.m4a
-│   │   └── 03 - Gopi Prem.m4a
+│   │   ├── thumbnail.jpg                  <-- Folder fallback thumbnail
+│   │   ├── 01 - Introduction.mp3
+│   │   ├── 01 - Introduction.jpg          <-- Track-specific thumbnail
+│   │   ├── 02 - Krishna Janma.mp3         <-- Uses thumbnail.jpg (fallback)
+│   │   └── 03 - Gopi Prem.mp3
 │   │
 │   └── NANASAHEB DEV MAHTI/
-│       ├── thumbnail.jpg
+│       ├── thumbnail.jpg                  <-- Fallback thumbnail for all parts
 │       ├── नानासाहेब देव महती भाग 1.m4a
 │       └── नानासाहेब देव महती भाग 2.m4a
 ```
 
-- **Thumbnail**: Name your image `thumbnail.jpg`, `thumbnail.png`, or `cover.jpg`.
+- **Thumbnail Mapping (Priority Order)**:
+  1. **Track-Specific**: If an image shares the same filename as the audio (e.g. `01 - Introduction.mp3` and `01 - Introduction.jpg`/`.jpeg`/`.png`), it renders the video with that specific image and sets it as the YouTube thumbnail.
+  2. **Folder Fallback**: If no same-name image is found, it automatically falls back to `thumbnail.jpg`, `thumbnail.jpeg`, or `thumbnail.png` in the same folder.
 - **Audio Formats**: Supports `.m4a`, `.mp3`, `.wav`, `.aac`, `.flac`, `.opus`, `.ogg`.
 - **Playlist Title**: The folder name (e.g. `NANASAHEB DEV MAHTI`) automatically becomes the YouTube Playlist title.
 - **Video Title**: Cleaned from the audio filename (strips file extension and collapses irregular spaces).
