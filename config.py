@@ -33,9 +33,8 @@ YOUTUBE_SCOPES = [
 ]
 
 # Rate Limit & Safety Settings
-# Google Cloud Console allocates 100 "Video Uploads per day" and 10,000 "Queries per day".
-# We set the default safety limit to 95 to leave a buffer before the hard limit of 100.
-MAX_UPLOADS_PER_DAY = int(os.getenv("MAX_UPLOADS_PER_DAY", "95"))
+# Conservative daily limit of 15 uploads per day to keep account and channel 100% safe.
+MAX_UPLOADS_PER_DAY = int(os.getenv("MAX_UPLOADS_PER_DAY", "15"))
 
 # Pacing delay between consecutive uploads (seconds) to prevent automated bot detection
 INTER_UPLOAD_DELAY_SECONDS = int(os.getenv("INTER_UPLOAD_DELAY_SECONDS", "30"))
