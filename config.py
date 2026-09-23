@@ -32,6 +32,15 @@ YOUTUBE_SCOPES = [
     "https://www.googleapis.com/auth/youtube"
 ]
 
+# Rate Limit & Safety Settings
+# Default daily YouTube API quota is 10,000 units.
+# 1 Video (~1600) + 1 Thumbnail (50) + 1 PlaylistItem (50) = ~1700 units per video.
+# 5 uploads = 8,500 units (leaves safety margin for token refreshes and queries).
+MAX_UPLOADS_PER_DAY = int(os.getenv("MAX_UPLOADS_PER_DAY", "5"))
+
+# Pacing delay between consecutive uploads (seconds) to prevent automated bot detection
+INTER_UPLOAD_DELAY_SECONDS = int(os.getenv("INTER_UPLOAD_DELAY_SECONDS", "30"))
+
 # Scheduler Settings
 DEFAULT_INTERVAL_MINUTES = 10
 

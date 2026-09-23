@@ -117,3 +117,15 @@ def cache_playlist_id(playlist_title: str, playlist_id: str) -> None:
                 playlist_id = excluded.playlist_id
         """, (playlist_title, playlist_id))
         conn.commit()
+
+def get_today_upload_count() -> int:
+    """Returns the number of videos successfully uploaded today (UTC date)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) FROM uploads
+            WHERE status = 'COMPLETED'
+            AND DATE(updated_at) = DATE('now')
+        """)
+        row = cursor.fetchone()
+        return row[0] if row else 0

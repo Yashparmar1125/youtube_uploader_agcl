@@ -26,7 +26,11 @@ import db
 logger = logging.getLogger(__name__)
 
 class YouTubeQuotaExceededError(Exception):
-    """Raised when YouTube API quota has been exhausted for the day."""
+    """Raised when YouTube API quota (10,000 units) has been exhausted for the day."""
+    pass
+
+class YouTubeUploadLimitExceededError(Exception):
+    """Raised when YouTube channel-level daily upload limit has been reached."""
     pass
 
 class YouTubeClient:
@@ -149,8 +153,17 @@ class YouTubeClient:
                 elif e.resp.status == 403:
                     content_str = e.content.decode("utf-8", errors="ignore")
                     if "quotaExceeded" in content_str:
-                        logger.error("Daily YouTube API quota exceeded.")
+                        logger.error("Daily YouTube API quota exceeded (10,000 units limit).")
                         raise YouTubeQuotaExceededError("YouTube API daily quota limit exceeded.")
+                    if "uploadLimitExceeded" in content_str:
+                        logger.error("YouTube channel daily upload limit exceeded.")
+                        raise YouTubeUploadLimitExceededError("YouTube channel daily upload limit reached.")
+                    if "rateLimitExceeded" in content_str or "userRateLimitExceeded" in content_str:
+                        if attempt < max_retries - 1:
+                            sleep_time = (2 ** attempt) + random.uniform(2, 5)
+                            logger.warning(f"Rate limit hit. Backing off for {sleep_time:.1f}s...")
+                            time.sleep(sleep_time)
+                            continue
                     raise
                 elif e.resp.status in [500, 502, 503, 504] and attempt < max_retries - 1:
                     sleep_time = (2 ** attempt) + random.random()
@@ -231,8 +244,19 @@ class YouTubeClient:
                 elif e.resp.status == 403:
                     content_str = e.content.decode("utf-8", errors="ignore")
                     if "quotaExceeded" in content_str:
-                        logger.error("Daily YouTube API quota exceeded.")
+                        logger.error("Daily YouTube API quota exceeded (10,000 units limit).")
                         raise YouTubeQuotaExceededError("YouTube API daily quota limit exceeded.")
+                    if "uploadLimitExceeded" in content_str:
+                        logger.error("YouTube channel daily upload limit exceeded.")
+                        raise YouTubeUploadLimitExceededError("YouTube channel daily upload limit reached.")
+                    if "rateLimitExceeded" in content_str or "userRateLimitExceeded" in content_str:
+                        retry += 1
+                        if retry > max_retries:
+                            raise
+                        sleep_time = (2 ** retry) + random.uniform(2, 5)
+                        logger.warning(f"Rate limit hit during upload chunk. Backing off for {sleep_time:.1f}s...")
+                        time.sleep(sleep_time)
+                        continue
                     raise
                 elif e.resp.status in [500, 502, 503, 504]:
                     retry += 1

@@ -10,7 +10,8 @@ from typing import List, Optional, Tuple
 import config
 import db
 import ffmpeg_helper
-from youtube_client import YouTubeClient, YouTubeQuotaExceededError
+import random
+from youtube_client import YouTubeClient, YouTubeQuotaExceededError, YouTubeUploadLimitExceededError
 
 # Configure Windows console for UTF-8 output to support Hindi/Marathi characters
 if sys.platform == "win32":
@@ -179,6 +180,11 @@ def process_single_audio(
         db.update_status(file_hash, "FAILED", error_message="YouTube quota exceeded")
         raise
 
+    except YouTubeUploadLimitExceededError:
+        logger.error("YouTube channel daily upload limit reached! Pausing remaining uploads until tomorrow.")
+        db.update_status(file_hash, "FAILED", error_message="Channel upload limit exceeded")
+        raise
+
     except Exception as e:
         logger.error(f"Error processing '{title}': {e}", exc_info=True)
         db.update_status(file_hash, "FAILED", error_message=str(e))
@@ -194,12 +200,22 @@ def scan_and_upload(
     privacy_status: str,
     dry_run: bool = False
 ) -> int:
-    """Scans all subfolders in WATCH_DIR and processes any pending audio files."""
+    """Scans all subfolders in WATCH_DIR and processes pending audio files with quota safety."""
     db.init_db()
     total_processed = 0
 
     if not config.WATCH_DIR.exists():
         logger.warning(f"Watch directory does not exist: {config.WATCH_DIR}")
+        return 0
+
+    # Daily safety check to prevent quota exhaustion and account bot flags
+    uploads_today = db.get_today_upload_count()
+    if uploads_today >= config.MAX_UPLOADS_PER_DAY and not dry_run:
+        logger.info(
+            f"Daily safety limit reached ({uploads_today}/{config.MAX_UPLOADS_PER_DAY} uploads completed today). "
+            f"Pausing uploads to protect YouTube API quota (10,000 units/day) and prevent account holding. "
+            f"Will resume automatically on the next run."
+        )
         return 0
 
     # Scan subdirectories
@@ -227,6 +243,14 @@ def scan_and_upload(
         logger.info(f"Scanning '{folder_name}': Found {len(audio_files)} audio file(s) (Folder fallback thumbnail: {fallback_info}).")
 
         for audio in audio_files:
+            # Check daily safety limit before processing each audio track
+            if not dry_run and db.get_today_upload_count() >= config.MAX_UPLOADS_PER_DAY:
+                logger.info(
+                    f"Reached daily safety cap of {config.MAX_UPLOADS_PER_DAY} uploads today. "
+                    f"Remaining tracks in '{folder_name}' will resume tomorrow to safeguard API quota and account health."
+                )
+                return total_processed
+
             # Map same-name image (e.g. song.mp3 -> song.jpg), else fallback to folder thumbnail.jpg
             thumbnail = resolve_thumbnail_for_audio(audio, folder)
             if not thumbnail:
@@ -247,7 +271,12 @@ def scan_and_upload(
                 )
                 if processed:
                     total_processed += 1
-            except YouTubeQuotaExceededError:
+                    # Natural human pacing delay between consecutive uploads to prevent bot detection
+                    if not dry_run and db.get_today_upload_count() < config.MAX_UPLOADS_PER_DAY:
+                        pacing = config.INTER_UPLOAD_DELAY_SECONDS + random.randint(3, 10)
+                        logger.info(f"Pacing delay: waiting {pacing}s before next upload to safeguard account health...")
+                        time.sleep(pacing)
+            except (YouTubeQuotaExceededError, YouTubeUploadLimitExceededError):
                 return total_processed
 
     return total_processed
@@ -288,7 +317,13 @@ def main():
         try:
             while True:
                 logger.info("Running scheduled scan...")
-                scan_and_upload(youtube, args.privacy, dry_run=args.dry_run)
+                try:
+                    scan_and_upload(youtube, args.privacy, dry_run=args.dry_run)
+                except (YouTubeQuotaExceededError, YouTubeUploadLimitExceededError):
+                    logger.warning("Daily quota/upload limit reached. Sleeping for 2 hours to avoid hammering API...")
+                    time.sleep(7200)
+                    continue
+
                 logger.info(f"Scan complete. Sleeping for {args.interval} minutes...")
                 time.sleep(args.interval * 60)
         except KeyboardInterrupt:
