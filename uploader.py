@@ -120,9 +120,9 @@ def process_single_audio(
     file_hash = db.compute_file_hash(audio_path)
     title = clean_title(audio_path.name)
 
-    # Check if already processed
-    if db.is_file_processed(file_hash):
-        logger.info(f"Skipping already uploaded file: '{audio_path.name}' (Hash: {file_hash[:8]}...)")
+    # Check if already processed for this specific folder/playlist
+    if db.is_file_processed(file_hash, folder_name):
+        logger.info(f"[{folder_name}] Skipping already uploaded file: '{audio_path.name}' (Hash: {file_hash[:8]}...)")
         return False
 
     if dry_run:
@@ -141,12 +141,12 @@ def process_single_audio(
 
     try:
         # Step 1: Render MP4
-        db.update_status(file_hash, "ENCODING")
+        db.update_status(file_hash, folder_name, "ENCODING")
         ffmpeg_helper.convert_audio_to_video(thumbnail_path, audio_path, temp_mp4)
-        db.update_status(file_hash, "ENCODED")
+        db.update_status(file_hash, folder_name, "ENCODED")
 
         # Step 2: Upload Video to YouTube
-        db.update_status(file_hash, "UPLOADING")
+        db.update_status(file_hash, folder_name, "UPLOADING")
         description = generate_description(title, folder_name)
         video_id = youtube.upload_video(
             video_path=temp_mp4,
@@ -168,6 +168,7 @@ def process_single_audio(
         # Step 5: Mark Completed in SQLite DB
         db.update_status(
             file_hash=file_hash,
+            folder_name=folder_name,
             status="COMPLETED",
             youtube_video_id=video_id,
             youtube_playlist_id=playlist_id
@@ -177,17 +178,17 @@ def process_single_audio(
 
     except YouTubeQuotaExceededError:
         logger.error("YouTube daily quota limit reached! Pausing remaining uploads until tomorrow.")
-        db.update_status(file_hash, "FAILED", error_message="YouTube quota exceeded")
+        db.update_status(file_hash, folder_name, "FAILED", error_message="YouTube quota exceeded")
         raise
 
     except YouTubeUploadLimitExceededError:
         logger.error("YouTube channel daily upload limit reached! Pausing remaining uploads until tomorrow.")
-        db.update_status(file_hash, "FAILED", error_message="Channel upload limit exceeded")
+        db.update_status(file_hash, folder_name, "FAILED", error_message="Channel upload limit exceeded")
         raise
 
     except Exception as e:
         logger.error(f"Error processing '{title}': {e}", exc_info=True)
-        db.update_status(file_hash, "FAILED", error_message=str(e))
+        db.update_status(file_hash, folder_name, "FAILED", error_message=str(e))
         return False
 
     finally:

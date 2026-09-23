@@ -12,25 +12,62 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 def init_db() -> None:
-    """Initializes the SQLite database schema if not already present."""
+    """Initializes the SQLite database schema and migrates old schema to folder-scoped uniqueness."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS uploads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT UNIQUE NOT NULL,
-                file_hash TEXT UNIQUE NOT NULL,
-                file_size INTEGER NOT NULL,
-                folder_name TEXT NOT NULL,
-                title TEXT NOT NULL,
-                youtube_video_id TEXT,
-                youtube_playlist_id TEXT,
-                status TEXT NOT NULL,
-                error_message TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        
+        # Check if uploads table exists and whether it needs migration
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='uploads'")
+        row = cursor.fetchone()
+        if row and ("file_hash TEXT UNIQUE" in row["sql"] or "file_path TEXT UNIQUE" in row["sql"]):
+            cursor.execute("ALTER TABLE uploads RENAME TO uploads_old")
+            cursor.execute("""
+                CREATE TABLE uploads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_path TEXT NOT NULL,
+                    file_hash TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    folder_name TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    youtube_video_id TEXT,
+                    youtube_playlist_id TEXT,
+                    status TEXT NOT NULL,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(folder_name, file_hash)
+                )
+            """)
+            cursor.execute("""
+                INSERT OR IGNORE INTO uploads (
+                    id, file_path, file_hash, file_size, folder_name, title,
+                    youtube_video_id, youtube_playlist_id, status, error_message, created_at, updated_at
+                )
+                SELECT id, file_path, file_hash, file_size, folder_name, title,
+                       youtube_video_id, youtube_playlist_id, status, error_message, created_at, updated_at
+                FROM uploads_old
+            """)
+            cursor.execute("DROP TABLE uploads_old")
+            conn.commit()
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS uploads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_path TEXT NOT NULL,
+                    file_hash TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    folder_name TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    youtube_video_id TEXT,
+                    youtube_playlist_id TEXT,
+                    status TEXT NOT NULL,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(folder_name, file_hash)
+                )
+            """)
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS playlists_cache (
                 title TEXT PRIMARY KEY,
@@ -48,30 +85,36 @@ def compute_file_hash(file_path: Path, chunk_size: int = 65536) -> str:
             sha256.update(chunk)
     return sha256.hexdigest()
 
-def is_file_processed(file_hash: str) -> bool:
-    """Checks if an audio file has already been successfully uploaded."""
+def is_file_processed(file_hash: str, folder_name: str) -> bool:
+    """Checks if an audio file has already been successfully uploaded for a specific folder/playlist."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT status FROM uploads WHERE file_hash = ?", (file_hash,))
+        cursor.execute(
+            "SELECT status FROM uploads WHERE file_hash = ? AND folder_name = ?",
+            (file_hash, folder_name)
+        )
         row = cursor.fetchone()
         return bool(row and row["status"] == "COMPLETED")
 
-def get_file_record(file_hash: str) -> Optional[Dict[str, Any]]:
-    """Retrieves an upload record by file hash."""
+def get_file_record(file_hash: str, folder_name: str) -> Optional[Dict[str, Any]]:
+    """Retrieves an upload record by file hash and folder name."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM uploads WHERE file_hash = ?", (file_hash,))
+        cursor.execute(
+            "SELECT * FROM uploads WHERE file_hash = ? AND folder_name = ?",
+            (file_hash, folder_name)
+        )
         row = cursor.fetchone()
         return dict(row) if row else None
 
 def register_file(file_path: Path, file_hash: str, file_size: int, folder_name: str, title: str) -> None:
-    """Registers a new audio file or updates path if moved."""
+    """Registers a new audio file for a specific folder/playlist."""
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO uploads (file_path, file_hash, file_size, folder_name, title, status)
             VALUES (?, ?, ?, ?, ?, 'PENDING')
-            ON CONFLICT(file_hash) DO UPDATE SET
+            ON CONFLICT(folder_name, file_hash) DO UPDATE SET
                 file_path = excluded.file_path,
                 updated_at = CURRENT_TIMESTAMP
         """, (str(file_path), file_hash, file_size, folder_name, title))
@@ -79,12 +122,13 @@ def register_file(file_path: Path, file_hash: str, file_size: int, folder_name: 
 
 def update_status(
     file_hash: str,
+    folder_name: str,
     status: str,
     youtube_video_id: Optional[str] = None,
     youtube_playlist_id: Optional[str] = None,
     error_message: Optional[str] = None
 ) -> None:
-    """Updates the status and YouTube details of a file."""
+    """Updates the status and YouTube details of a file in a specific folder/playlist."""
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -94,8 +138,8 @@ def update_status(
                 youtube_playlist_id = COALESCE(?, youtube_playlist_id),
                 error_message = ?,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE file_hash = ?
-        """, (status, youtube_video_id, youtube_playlist_id, error_message, file_hash))
+            WHERE file_hash = ? AND folder_name = ?
+        """, (status, youtube_video_id, youtube_playlist_id, error_message, file_hash, folder_name))
         conn.commit()
 
 def get_cached_playlist_id(playlist_title: str) -> Optional[str]:
